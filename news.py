@@ -6,6 +6,7 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import random
 import re
+import os
 
 # -----------------------------
 # RSS SOURCES
@@ -28,7 +29,7 @@ RESEARCH_FEEDS = [
 # -----------------------------
 
 EMAIL_SENDER = "udaykumar.venkatesh@joytechnologies.com"
-EMAIL_PASSWORD = "nfodanrpdzcznmta"
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = "udaykumar.venkatesh@joytechnologies.com"
 
 # -----------------------------
