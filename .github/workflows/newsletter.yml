@@ -27,3 +27,5 @@ jobs:
 
       - name: Run Newsletter Script
         run: python news.py
+        env:
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
