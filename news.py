@@ -4,12 +4,11 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
-import random
-import re
 import os
+import re
 
 # -----------------------------
-# RSS SOURCES
+# CONFIG
 # -----------------------------
 
 NEWS_FEEDS = [
@@ -18,221 +17,143 @@ NEWS_FEEDS = [
     "https://techcrunch.com/feed/"
 ]
 
-RESEARCH_FEEDS = [
-    "https://blog.hubspot.com/marketing/rss.xml",
-    "https://moz.com/blog/rss",
-    "https://ahrefs.com/blog/feed/"
-]
-
-# -----------------------------
-# EMAIL SETTINGS
-# -----------------------------
-
 EMAIL_SENDER = "udaykumar.venkatesh@joytechnologies.com"
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = "udaykumar.venkatesh@joytechnologies.com"
 
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 # -----------------------------
-# FILTER PROMOTIONAL ARTICLES
+# FILTER
 # -----------------------------
 
 PROMO_WORDS = [
-    "services",
-    "agency",
-    "press release",
-    "sponsored",
-    "advertising",
-    "company announces"
+    "services", "agency", "press release",
+    "sponsored", "advertising"
 ]
 
 def is_promotional(title):
-
-    title = title.lower()
-
-    for word in PROMO_WORDS:
-        if word in title:
-            return True
-
-    return False
-
+    return any(word in title.lower() for word in PROMO_WORDS)
 
 # -----------------------------
 # GET ARTICLE TEXT
 # -----------------------------
 
 def get_article_text(url):
-
     try:
-
-        headers = {"User-Agent": "Mozilla/5.0"}
-
-        r = requests.get(url, headers=headers, timeout=10)
-
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
-
-        paragraphs = soup.find_all("p")
-
-        text = " ".join(p.get_text() for p in paragraphs)
-
-        return text
-
+        return " ".join(p.get_text() for p in soup.find_all("p"))
     except:
         return ""
 
-
 # -----------------------------
-# CREATE SUMMARY
-# -----------------------------
-
-def summarize(text):
-
-    sentences = re.split(r'(?<=[.!?]) +', text)
-
-    for s in sentences:
-
-        s = s.strip()
-
-        if 120 < len(s) < 220 and "subscribe" not in s.lower():
-
-            return s
-
-    return "Summary unavailable."
-
-
-# -----------------------------
-# TOP INDUSTRY NEWS
+# PICK 2 BEST ARTICLES
 # -----------------------------
 
-def get_top_news():
+def get_articles(limit=2):
+
+    selected = []
 
     for feed_url in NEWS_FEEDS:
-
         feed = feedparser.parse(feed_url)
 
         for entry in feed.entries:
 
-            title = entry.title
-
-            if is_promotional(title):
+            if is_promotional(entry.title):
                 continue
 
             text = get_article_text(entry.link)
 
-            summary = summarize(text)
+            if len(text) > 500:
+                selected.append(text)
 
-            if summary != "Summary unavailable.":
+            if len(selected) >= limit:
+                return selected
 
-                return title, summary
-
-    return "No major update today.", "No summary available."
-
-
-# -----------------------------
-# GOOGLE ALGORITHM WATCH
-# -----------------------------
-
-def detect_algorithm_news():
-
-    for feed_url in NEWS_FEEDS:
-
-        feed = feedparser.parse(feed_url)
-
-        for entry in feed.entries:
-
-            title = entry.title.lower()
-
-            if (
-                "google update" in title
-                or "algorithm update" in title
-                or "ranking volatility" in title
-                or "core update" in title
-            ):
-
-                return entry.title
-
-    return "No significant Google ranking volatility detected today."
-
+    return selected
 
 # -----------------------------
-# EXTRACT INSIGHTS
+# GEMINI CALL
 # -----------------------------
 
-INSIGHT_KEYWORDS = [
-    "data",
-    "study",
-    "research",
-    "increase",
-    "improve",
-    "conversion",
-    "ranking",
-    "traffic",
-    "marketers",
-    "seo strategy",
-    "search results",
-    "users",
-    "ai tools",
-    "algorithm",
-    "content strategy"
-]
+def call_gemini(prompt):
 
-def get_insights():
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
-    insights = []
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
 
-    for feed_url in RESEARCH_FEEDS:
+    response = requests.post(url, json=payload)
+    data = response.json()
 
-        feed = feedparser.parse(feed_url)
-
-        for entry in feed.entries[:3]:
-
-            text = get_article_text(entry.link)
-
-            sentences = re.split(r'(?<=[.!?]) +', text)
-
-            for sentence in sentences:
-
-                sentence = sentence.strip()
-
-                if len(sentence) < 90 or len(sentence) > 200:
-                    continue
-
-                if any(word in sentence.lower() for word in INSIGHT_KEYWORDS):
-
-                    if "subscribe" not in sentence.lower():
-
-                        insights.append(sentence)
-
-    random.shuffle(insights)
-
-    return insights[:5]
-
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 # -----------------------------
-# FETCH CONTENT
+# GENERATE BRIEF
 # -----------------------------
 
-news_title, news_summary = get_top_news()
+def generate_brief(text):
 
-algorithm_watch = detect_algorithm_news()
+    prompt = f"""
+    You are an expert in SEO and digital marketing.
 
-insights = get_insights()
+    Summarize this into:
+
+    What is the update:
+    Why this update:
+    Why it matters:
+
+    Keep it concise and practical.
+
+    Content:
+    {text[:3000]}
+    """
+
+    return call_gemini(prompt)
+
+# -----------------------------
+# GENERATE QUESTION
+# -----------------------------
+
+def generate_question(text):
+
+    prompt = f"""
+    Based on this content, create ONE simple but thought-provoking
+    question for SEO or digital marketing professionals.
+
+    Content:
+    {text[:2000]}
+    """
+
+    return call_gemini(prompt)
+
+# -----------------------------
+# MAIN FLOW
+# -----------------------------
+
+articles = get_articles()
+
+briefs = [generate_brief(a) for a in articles]
+
+question = generate_question(articles[0])
 
 date = datetime.now().strftime("%A, %B %d, %Y")
 
 # -----------------------------
-# BUILD INSIGHTS HTML
+# HTML BUILD
 # -----------------------------
 
-insights_html = ""
+updates_html = ""
 
-for insight in insights:
-
-    insights_html += f"<li style='margin-bottom:10px;'>{insight}</li>"
-
-
-# -----------------------------
-# HTML NEWSLETTER
-# -----------------------------
+for i, brief in enumerate(briefs):
+    updates_html += f"""
+    <h2>Update {i+1}</h2>
+    <div style="background:#f5f5f5;padding:15px;border-radius:8px;margin-bottom:25px;line-height:1.6;">
+    {brief.replace('\n', '<br>')}
+    </div>
+    """
 
 html_content = f"""
 <html>
@@ -241,44 +162,18 @@ html_content = f"""
 <div style="max-width:720px;margin:auto;background:white;">
 
 <div style="background:#1d213f;color:white;text-align:center;padding:40px;">
-
-<h1 style="margin:0;">SEO Intelligence Brief</h1>
-
-<p style="margin-top:10px;font-size:15px;">
-{date}
-</p>
-
+<h1>Digital Intelligence Brief</h1>
+<p>{date}</p>
 </div>
 
-<div style="padding:35px;">
+<div style="padding:30px;">
 
-<h2>Top Industry Update</h2>
+{updates_html}
 
-<h3 style="color:#222;">{news_title}</h3>
-
-<div style="
-background:#f5f5f5;
-border:1px solid #e2e2e2;
-padding:18px;
-border-radius:8px;
-line-height:1.6;
-margin-bottom:35px;">
-
-{news_summary}
-
-</div>
-
-<h2>Google Algorithm Watch</h2>
-
-<p style="line-height:1.6;">
-{algorithm_watch}
+<h2>Thinking Question</h2>
+<p style="font-style:italic;background:#fafafa;padding:15px;border-left:4px solid #1d213f;">
+{question}
 </p>
-
-<h2 style="margin-top:35px;">SEO / AI / Marketing Insights</h2>
-
-<ul style="line-height:1.7;padding-left:20px;">
-{insights_html}
-</ul>
 
 </div>
 
@@ -294,7 +189,7 @@ margin-bottom:35px;">
 
 msg = MIMEText(html_content, "html")
 
-msg["Subject"] = "SEO Intelligence Brief"
+msg["Subject"] = "Digital Intelligence Brief"
 msg["From"] = EMAIL_SENDER
 msg["To"] = EMAIL_RECEIVER
 
@@ -310,4 +205,4 @@ server.sendmail(
 
 server.quit()
 
-print("SEO Intelligence newsletter sent.")
+print("✅ Daily Brief Sent")
