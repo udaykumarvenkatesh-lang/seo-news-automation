@@ -5,6 +5,7 @@ import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
 import os
+import time
 
 # -----------------------------
 # CONFIG
@@ -22,14 +23,17 @@ EMAIL_RECEIVER = "udaykumar.venkatesh@joytechnologies.com"
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+MODEL = "gemini-2.5-flash"
+
+# 🔒 RATE LIMIT CONTROL
+MAX_API_CALLS = 3
+api_calls_made = 0
+
 # -----------------------------
 # FILTER
 # -----------------------------
 
-PROMO_WORDS = [
-    "services", "agency", "press release",
-    "sponsored", "advertising"
-]
+PROMO_WORDS = ["services", "agency", "press release", "sponsored", "advertising"]
 
 def is_promotional(title):
     return any(word in title.lower() for word in PROMO_WORDS)
@@ -47,25 +51,23 @@ def get_article_text(url):
         return ""
 
 # -----------------------------
-# PICK 2 BEST ARTICLES
+# GET ARTICLES
 # -----------------------------
 
 def get_articles(limit=2):
-
     selected = []
 
     for feed_url in NEWS_FEEDS:
         feed = feedparser.parse(feed_url)
 
         for entry in feed.entries:
-
             if is_promotional(entry.title):
                 continue
 
             text = get_article_text(entry.link)
 
             if len(text) > 500:
-                selected.append(text)
+                selected.append(text[:1500])  # limit size
 
             if len(selected) >= limit:
                 return selected
@@ -73,13 +75,17 @@ def get_articles(limit=2):
     return selected
 
 # -----------------------------
-# GEMINI CALL (SAFE)
+# GEMINI CALL (SAFE + LIMITED)
 # -----------------------------
 
 def call_gemini(prompt):
+    global api_calls_made
+
+    if api_calls_made >= MAX_API_CALLS:
+        return "API limit reached. Skipping."
 
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={GEMINI_API_KEY}"
 
         payload = {
             "contents": [{"parts": [{"text": prompt}]}]
@@ -87,24 +93,46 @@ def call_gemini(prompt):
 
         response = requests.post(url, json=payload)
 
-        if response.status_code != 200:
-            print("Gemini API error:", response.text)
-            return "Unable to generate insight today."
+        api_calls_made += 1
 
         data = response.json()
 
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        print("Gemini response:", data)
+
+        if "candidates" in data and data["candidates"]:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        elif "error" in data:
+            print("API Error:", data["error"])
+            return "Insight unavailable due to API error."
+
+        else:
+            return "No valid AI response."
 
     except Exception as e:
-        print("Gemini Exception:", str(e))
-        return "Unable to generate insight today."
+        print("Exception:", str(e))
+        return "AI generation failed."
+
+# -----------------------------
+# RETRY WRAPPER
+# -----------------------------
+
+def call_with_retry(prompt, retries=2):
+    for _ in range(retries):
+        result = call_gemini(prompt)
+
+        if "failed" not in result.lower() and "error" not in result.lower():
+            return result
+
+        time.sleep(5)
+
+    return "Final fallback: Unable to generate insight."
 
 # -----------------------------
 # GENERATE BRIEF
 # -----------------------------
 
 def generate_brief(text):
-
     prompt = f"""
     You are an expert in SEO and digital marketing.
 
@@ -117,26 +145,23 @@ def generate_brief(text):
     Keep it concise and practical.
 
     Content:
-    {text[:3000]}
+    {text}
     """
-
-    return call_gemini(prompt)
+    return call_with_retry(prompt)
 
 # -----------------------------
 # GENERATE QUESTION
 # -----------------------------
 
 def generate_question(text):
-
     prompt = f"""
     Based on this content, create ONE simple but thought-provoking
-    question for SEO or digital marketing professionals.
+    question for digital marketers.
 
     Content:
-    {text[:2000]}
+    {text}
     """
-
-    return call_gemini(prompt)
+    return call_with_retry(prompt)
 
 # -----------------------------
 # MAIN FLOW
@@ -212,7 +237,6 @@ html_content = f"""
 print("Sending email...")
 
 msg = MIMEText(html_content, "html")
-
 msg["Subject"] = "Digital Intelligence Brief"
 msg["From"] = EMAIL_SENDER
 msg["To"] = EMAIL_RECEIVER
@@ -221,15 +245,10 @@ try:
     server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
     server.login(EMAIL_SENDER, EMAIL_PASSWORD)
 
-    server.sendmail(
-        EMAIL_SENDER,
-        EMAIL_RECEIVER,
-        msg.as_string()
-    )
-
+    server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
     server.quit()
 
     print("✅ Daily Brief Sent Successfully")
 
 except Exception as e:
-    print("❌ Email sending failed:", str(e))
+    print("❌ Email failed:", str(e))
