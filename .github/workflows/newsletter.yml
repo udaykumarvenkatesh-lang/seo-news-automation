@@ -29,3 +29,4 @@ jobs:
         run: python news.py
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
