@@ -79,16 +79,20 @@ def get_articles(limit=2):
 
 def call_gemini(prompt):
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
 
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
 
-    response = requests.post(url, json=payload)
-    data = response.json()
+        response = requests.post(url, json=payload)
+        data = response.json()
 
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+
+    except Exception as e:
+        return "Unable to generate insight today."
 
 # -----------------------------
 # GENERATE BRIEF
