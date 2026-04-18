@@ -2,7 +2,7 @@ name: SEO Newsletter Automation
 
 on:
   schedule:
-    - cron: "30 2 * * *"
+    - cron: "30 2 * * *"  # 8:00 AM IST
 
   workflow_dispatch:
 
@@ -22,7 +22,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install Dependencies
-        run: pip install feedparser requests beautifulsoup4
+        run: pip install feedparser requests beautifulsoup4 pytz
 
       - name: Run Script
         run: python news.py
